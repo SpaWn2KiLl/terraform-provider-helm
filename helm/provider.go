@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -28,6 +30,9 @@ type Meta struct {
 
 	// Used to lock some operations
 	sync.Mutex
+
+	// Experimental feature toggles
+	experiments map[string]bool
 }
 
 // Provider returns the provider schema to Terraform.
@@ -100,19 +105,41 @@ func Provider() *schema.Provider {
 				Description: "Kubernetes configuration.",
 				Elem:        kubernetesResource(),
 			},
+			"experiments": {
+				Type:        schema.TypeList,
+				MaxItems:    1,
+				Optional:    true,
+				Description: "Enable and disable experimental features.",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"manifest": {
+							Type:     schema.TypeBool,
+							Optional: true,
+							DefaultFunc: func() (interface{}, error) {
+								if v := os.Getenv("TF_X_HELM_MANIFEST"); v != "" {
+									vv, err := strconv.ParseBool(v)
+									if err != nil {
+										return false, err
+									}
+									return vv, nil
+								}
+								return false, nil
+							},
+							Description: "Enable full diff by storing the rendered manifest in the state.",
+						},
+					},
+				},
+			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
 			"helm_release": resourceRelease(),
 		},
+		DataSourcesMap: map[string]*schema.Resource{
+			"helm_template": dataTemplate(),
+		},
 	}
 	p.ConfigureContextFunc = func(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
-		terraformVersion := p.TerraformVersion
-		if terraformVersion == "" {
-			// Terraform 0.12 introduced this field to the protocol
-			// We can therefore assume that if it's missing it's 0.10 or 0.11
-			terraformVersion = "0.11+compatible"
-		}
-		return providerConfigure(d, terraformVersion)
+		return providerConfigure(d, p.TerraformVersion)
 	}
 	return p
 }
@@ -162,11 +189,18 @@ func kubernetesResource() *schema.Resource {
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_CLUSTER_CA_CERT_DATA", ""),
 				Description: "PEM-encoded root certificates bundle for TLS authentication.",
 			},
-			"config_path": {
-				Type:        schema.TypeString,
+			"config_paths": {
+				Type:        schema.TypeList,
+				Elem:        &schema.Schema{Type: schema.TypeString},
 				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("KUBE_CONFIG_PATH", ""),
-				Description: "Path to the kube config file. Can be set with KUBE_CONFIG_PATH environment variable.",
+				Description: "A list of paths to kube config files. Can be set with KUBE_CONFIG_PATHS environment variable.",
+			},
+			"config_path": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				DefaultFunc:   schema.EnvDefaultFunc("KUBE_CONFIG_PATH", nil),
+				Description:   "Path to the kube config file. Can be set with KUBE_CONFIG_PATH.",
+				ConflictsWith: []string{"kubernetes.0.config_paths"},
 			},
 			"config_context": {
 				Type:        schema.TypeString,
@@ -224,7 +258,14 @@ func kubernetesResource() *schema.Resource {
 }
 
 func providerConfigure(d *schema.ResourceData, terraformVersion string) (interface{}, diag.Diagnostics) {
-	m := &Meta{data: d}
+	m := &Meta{
+		data: d,
+		experiments: map[string]bool{
+			"manifest": d.Get("experiments.0.manifest").(bool),
+		},
+	}
+
+	log.Println("[DEBUG] Experiments enabled:", m.GetEnabledExperiments())
 
 	settings := cli.New()
 	settings.Debug = d.Get("debug").(bool)
@@ -301,6 +342,22 @@ func expandStringSlice(s []interface{}) []string {
 	return result
 }
 
+// ExperimentEnabled returns true it the named experiment is enabled
+func (m *Meta) ExperimentEnabled(name string) bool {
+	return m.experiments[name]
+}
+
+// GetEnabledExperiments returns a list of the experimental features that are enabled
+func (m *Meta) GetEnabledExperiments() []string {
+	enabled := []string{}
+	for k, v := range m.experiments {
+		if v {
+			enabled = append(enabled, k)
+		}
+	}
+	return enabled
+}
+
 // GetHelmConfiguration will return a new Helm configuration
 func (m *Meta) GetHelmConfiguration(namespace string) (*action.Configuration, error) {
 	m.Lock()
@@ -308,7 +365,10 @@ func (m *Meta) GetHelmConfiguration(namespace string) (*action.Configuration, er
 	debug("[INFO] GetHelmConfiguration start")
 	actionConfig := new(action.Configuration)
 
-	kc := newKubeConfig(m.data, &namespace)
+	kc, err := newKubeConfig(m.data, &namespace)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := actionConfig.Init(kc, namespace, m.HelmDriver, debug); err != nil {
 		return nil, err

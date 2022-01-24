@@ -120,16 +120,15 @@ func coalesceGlobals(dest, src map[string]interface{}) {
 					// top-down.
 					CoalesceTables(vv, destvmap)
 					dg[key] = vv
-					continue
 				}
 			}
 		} else if dv, ok := dg[key]; ok && istable(dv) {
 			// It's not clear if this condition can actually ever trigger.
 			log.Printf("key %s is table. Skipping", key)
-			continue
+		} else {
+			// TODO: Do we need to do any additional checking on the value?
+			dg[key] = val
 		}
-		// TODO: Do we need to do any additional checking on the value?
-		dg[key] = val
 	}
 	dest[GlobalKey] = dg
 }
@@ -157,12 +156,16 @@ func coalesceValues(c *chart.Chart, v map[string]interface{}) {
 				// if v[key] is a table, merge nv's val table into v[key].
 				src, ok := val.(map[string]interface{})
 				if !ok {
-					log.Printf("warning: skipped value for %s: Not a table.", key)
-					continue
+					// If the original value is nil, there is nothing to coalesce, so we don't print
+					// the warning
+					if val != nil {
+						log.Printf("warning: skipped value for %s: Not a table.", key)
+					}
+				} else {
+					// Because v has higher precedence than nv, dest values override src
+					// values.
+					CoalesceTables(dest, src)
 				}
-				// Because v has higher precedence than nv, dest values override src
-				// values.
-				CoalesceTables(dest, src)
 			}
 		} else {
 			// If the key is not in v, copy it from nv.
@@ -195,7 +198,7 @@ func CoalesceTables(dst, src map[string]interface{}) map[string]interface{} {
 			} else {
 				log.Printf("warning: cannot overwrite table with non table for %s (%v)", key, val)
 			}
-		} else if istable(dv) {
+		} else if istable(dv) && val != nil {
 			log.Printf("warning: destination for %s is a table. Ignoring non-table value %v", key, val)
 		}
 	}

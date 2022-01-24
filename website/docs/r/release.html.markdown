@@ -9,6 +9,7 @@ description: |-
 # Resource: helm_release
 
 A Release is an instance of a chart running in a Kubernetes cluster.
+
 A Chart is a Helm package. It contains all of the resource definitions necessary to run an application, tool, or service inside of a Kubernetes cluster.
 
 `helm_release` describes the desired status of a chart in a kubernetes cluster.
@@ -18,7 +19,7 @@ A Chart is a Helm package. It contains all of the resource definitions necessary
 ```hcl
 resource "helm_release" "example" {
   name       = "my-redis-release"
-  repository = "https://kubernetes-charts.storage.googleapis.com"
+  repository = "https://charts.bitnami.com/bitnami"
   chart      = "redis"
   version    = "6.0.1"
 
@@ -66,6 +67,20 @@ resource "helm_release" "example" {
 }
 ```
 
+## Example Usage - Chart Repository configured outside of Terraform
+
+The provider also supports repositories that are added to the local machine outside of Terraform by running `helm repo add`
+
+```hcl
+
+# run this first: `helm repo add bitnami https://charts.bitnami.com/bitnami`
+
+resource "helm_release" "example" {
+  name  = "redis"
+  chart = "bitnami/redis"
+}
+```
+
 ## Argument Reference
 
 The following arguments are supported:
@@ -84,7 +99,7 @@ The following arguments are supported:
 * `verify` - (Optional) Verify the package before installing it. Helm uses a provenance file to verify the integrity of the chart; this must be hosted alongside the chart. For more information see the [Helm Documentation](https://helm.sh/docs/topics/provenance/). Defaults to `false`.
 * `keyring` - (Optional) Location of public keys used for verification. Used only if `verify` is true. Defaults to `/.gnupg/pubring.gpg` in the location set by `home`
 * `timeout` - (Optional) Time in seconds to wait for any individual kubernetes operation (like Jobs for hooks). Defaults to `300` seconds.
-* `disable_webhooks` - (Optional) Prevent hooks from running. Defauts to `false`
+* `disable_webhooks` - (Optional) Prevent hooks from running. Defaults to `false`.
 * `reuse_values` - (Optional) When upgrading, reuse the last release's values and merge in any overrides. If 'reset_values' is specified, this is ignored. Defaults to `false`.
 * `reset_values` - (Optional) When upgrading, reset the values to the ones built into the chart. Defaults to `false`.
 * `force_update` - (Optional) Force resource update through delete/recreate if needed. Defaults to `false`.
@@ -96,12 +111,14 @@ The following arguments are supported:
 * `render_subchart_notes` - (Optional) If set, render subchart notes along with the parent. Defaults to `true`.
 * `disable_openapi_validation` - (Optional) If set, the installation process will not validate rendered templates against the Kubernetes OpenAPI Schema. Defaults to `false`.
 * `wait` - (Optional) Will wait until all resources are in a ready state before marking the release as successful. It will wait for as long as `timeout`. Defaults to `true`.
+* `wait_for_jobs` - (Optional) If wait is enabled, will wait until all Jobs have been completed before marking the release as successful. It will wait for as long as `timeout`.  Defaults to false.
+
 * `values` - (Optional) List of values in raw yaml to pass to helm. Values will be merged, in order, as Helm does with multiple `-f` options.
 * `values_sensitive` - (Optional) List of sensitive values in raw yaml to pass to helm. Sensitive values will be merged, in order, as Helm does with multiple `-f` options. Sensitive values won't be exposed in the plan's diff.
 * `set` - (Optional) Value block with custom values to be merged with the values yaml.
 * `set_sensitive` - (Optional) Value block with custom sensitive values to be merged with the values yaml that won't be exposed in the plan's diff.
 * `dependency_update` - (Optional) Runs helm dependency update before installing the chart. Defaults to `false`.
-* `replace` - (Optional) Re-use the given name, even if that name is already used. This is unsafe in production. Defaults to `false`.
+* `replace` - (Optional)  Re-use the given name, only if that name is a deleted release which remains in the history. This is unsafe in production. Defaults to `false`.
 * `description` - (Optional) Set release description attribute (visible in the history).
 * `postrender` - (Optional) Configure a command to run after helm renders the manifest which can alter the manifest contents.
 * `lint` - (Optional) Run the helm chart linter during the plan. Defaults to `false`.
@@ -123,6 +140,7 @@ The `postrender` block supports a single attribute:
 In addition to the arguments listed above, the following computed attributes are
 exported:
 
+* `manifest` - The rendered manifest of the release as JSON. Enable the `manifest` experiment to use this feature.
 * `metadata` - Block status of the deployed release.
 
 The `metadata` block supports:

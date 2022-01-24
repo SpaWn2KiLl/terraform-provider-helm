@@ -1,3 +1,79 @@
+## 2.4.1 (November 09, 2021)
+
+HOTFIX:
+* Fix exec plugin interactive mode regression (#798) 
+
+## 2.4.0 (November 08, 2021)
+
+* Upgrade helm to 3.7.1
+
+## 2.3.0 (August 27, 2021)
+
+* Support templates with multiple resources in helm_template data source (#772)
+* Upgrade helm to 3.6.2
+
+## 2.2.0 (June 10, 2021)
+
+* Add support for stand-alone debug mode (launch with -debug argument) (#748)
+* Add helm_template data source to render chart templates locally (#483)
+* Surface diagnostics when helm release creation fails (#727)
+
+## 2.1.2 (April 27, 2021)
+
+* Fix dependency download on resource update (#580)
+* Add support for the --wait-for-jobs option (#720)
+
+## 2.1.1 (April 16, 2021)
+
+* Fix dry-run happening at plan when manifest is not enabled (#724)
+
+## 2.1.0 (April 01, 2021)
+
+IMPROVEMENTS:
+* Add chart diff support by storing the rendered manifest (#702)
+* Update to Helm 3.5.3 (#709)
+* Docs: add link to Learn tutorial (#714)
+
+BUG FIXES:
+* Remove kubeconfig file check (#708)
+
+## 2.0.3 (March 11, 2021)
+
+BUG FIXES:
+* Fix documentation for KUBE_TOKEN env var name (#684)
+* Fix destroy stage error for charts with "helm.sh/resource-policy:keep" annotation (#671)
+* Fix read function to set resource id to null when not found (#674)
+
+IMPROVEMENTS:
+* Update provider configuration docs (#673)
+
+## 2.0.2 (January 18, 2021)
+
+BUG FIXES:
+* Remove check for empty kubernetes block 
+
+## 2.0.1 (December 19, 2020)
+
+BUG FIXES:
+* Move kubernetes config check out of providerConfigure (#648)
+
+## 2.0.0 (December 19, 2020)
+
+BREAKING CHANGES:
+Please review our [upgrade guide](https://github.com/hashicorp/terraform-provider-helm/blob/master/website/docs/guides/v2-upgrade-guide.markdown).
+
+* Update Terraform SDK to v2 (#594). 
+* Remove deprecated helm_repository resource and data source (#600)
+* Remove implicit support for KUBECONFIG (#604)
+* Remove load_config_file attribute (#604)
+* Remove set_string attribute from helm_release (#608)
+
+IMPROVEMENTS:
+* Add support for multiple paths to kubeconfig files (#636)
+* Remove remote dependencies from test-fixtures (#638)
+* Set up matrix build to run acc tests against different tf versions (#637)
+
+
 ## 1.3.2 (October 07, 2020)
 
 BUG FIXES:
