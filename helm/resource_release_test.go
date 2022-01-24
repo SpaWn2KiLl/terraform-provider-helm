@@ -16,13 +16,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/pkg/errors"
-
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/helmpath"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/releaseutil"
 	"helm.sh/helm/v3/pkg/repo"
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
@@ -312,13 +310,13 @@ func TestAccResourceRelease_cloakValues(t *testing.T) {
 }
 
 func TestAccResourceRelease_cloakValuesYaml(t *testing.T) {
-	name := fmt.Sprintf("test-update-values-list-%s", acctest.RandString(10))
-	namespace := fmt.Sprintf("%s-%s", testNamespace, acctest.RandString(10))
+	name := randName("test-update-multiple-values")
+	namespace := createRandomNamespace(t)
 	// Delete namespace automatically created by helm after checks
 	defer deleteNamespace(t, namespace)
 
 	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t, namespace) },
+		PreCheck:     func() { testAccPreCheck(t) },
 		Providers:    testAccProviders,
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{{
@@ -904,7 +902,7 @@ func testAccPreCheckHelmRepositoryDestroy(t *testing.T, name string) {
 		return
 	}
 
-	if err := r.WriteFile(rc, 0644); err != nil {
+	if err := r.WriteFile(rc, 0o644); err != nil {
 		t.Fatalf("Failed to write repositories file: %s", err)
 	}
 
