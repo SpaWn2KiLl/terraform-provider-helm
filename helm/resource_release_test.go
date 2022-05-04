@@ -2,8 +2,10 @@ package helm
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -595,7 +598,7 @@ func TestAccResourceRelease_invalidName(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:             broken,
-				ExpectError:        regexp.MustCompile("releaseContent: Release name is invalid"),
+				ExpectError:        regexp.MustCompile("invalid release name"),
 				ExpectNonEmptyPlan: true,
 			},
 		},
@@ -1296,6 +1299,242 @@ func TestAccResourceRelease_manifest(t *testing.T) {
 			},
 		},
 	})
+}
+
+func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("Starting the OCI registry requires docker to be installed in the PATH")
+	}
+
+	ociRegistryPort := rand.Intn(65535-1024) + 1024
+	ociRegistryURL := fmt.Sprintf("oci://localhost:%d/helm-charts", ociRegistryPort)
+	regitryContainerName := randName("registry")
+
+	// start OCI registry
+	// TODO run this in-process instead of starting a container
+	// see here: https://pkg.go.dev/github.com/distribution/distribution/registry
+	t.Log("Starting OCI registry")
+	wd, _ := os.Getwd()
+	runflags := []string{
+		"run",
+		"--detach",
+		"--publish", fmt.Sprintf("%d:5000", ociRegistryPort),
+		"--name", regitryContainerName,
+	}
+	if usepassword {
+		t.Log(wd)
+		runflags = append(runflags, []string{
+			"--volume", path.Join(wd, "testdata/oci_registry/auth.htpasswd") + ":/etc/docker/registry/auth.htpasswd",
+			"--env", `REGISTRY_AUTH={htpasswd: {realm: localhost, path: /etc/docker/registry/auth.htpasswd}}`,
+		}...)
+	}
+	runflags = append(runflags, "registry")
+	cmd := exec.Command(dockerPath, runflags...)
+	out, err := cmd.CombinedOutput()
+	t.Log(string(out))
+	if err != nil {
+		t.Errorf("Failed to start OCI registry: %v", err)
+		return "", nil
+	}
+	// wait a few seconds for the server to start
+	t.Log("Waiting for registry to start...")
+	time.Sleep(5 * time.Second)
+	t.Log("OCI registry started at", ociRegistryURL)
+
+	// package chart
+	t.Log("packaging test-chart")
+	cmd = exec.Command("helm", "package", "testdata/charts/test-chart")
+	out, err = cmd.CombinedOutput()
+	t.Log(string(out))
+	if err != nil {
+		t.Errorf("Failed to package chart: %v", err)
+		return "", nil
+	}
+
+	if usepassword {
+		// log into OCI registry
+		t.Log("logging in to test-chart to OCI registry")
+		cmd = exec.Command("helm", "registry", "login",
+			fmt.Sprintf("localhost:%d", ociRegistryPort),
+			"--username", "hashicorp",
+			"--password", "terraform")
+		out, err = cmd.CombinedOutput()
+		t.Log(string(out))
+		if err != nil {
+			t.Errorf("Failed to login to OCI registry: %v", err)
+			return "", nil
+		}
+	}
+
+	// push chart to OCI registry
+	t.Log("pushing test-chart to OCI registry")
+	cmd = exec.Command("helm", "push",
+		"test-chart-1.2.3.tgz",
+		ociRegistryURL)
+	out, err = cmd.CombinedOutput()
+	t.Log(string(out))
+	if err != nil {
+		t.Errorf("Failed to push chart: %v", err)
+		return "", nil
+	}
+
+	return ociRegistryURL, func() {
+		t.Log("stopping OCI registry")
+		cmd := exec.Command("docker", "rm",
+			"--force", regitryContainerName)
+		out, err := cmd.CombinedOutput()
+		t.Log(string(out))
+		if err != nil {
+			t.Errorf("Failed to stop OCI registry: %v", err)
+		}
+	}
+}
+
+func TestAccResourceRelease_OCI_repository(t *testing.T) {
+	name := randName("oci")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	ociRegistryURL, shutdown := setupOCIRegistry(t, false)
+	defer shutdown()
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseConfig_OCI(testResourceName, namespace, name, ociRegistryURL, "1.2.3"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.name", name),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+				),
+			},
+			{
+				Config: testAccHelmReleaseConfig_OCI_updated(testResourceName, namespace, name, ociRegistryURL, "1.2.3"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.name", name),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test", "set.0.name", "replicaCount"),
+					resource.TestCheckResourceAttr("helm_release.test", "set.0.value", "2"),
+				),
+			},
+			{
+				Config: testAccHelmReleaseConfig_OCI_chartName(testResourceName, namespace, name, fmt.Sprintf("%s/%s", ociRegistryURL, "test-chart"), "1.2.3"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.name", name),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test", "chart", fmt.Sprintf("%s/%s", ociRegistryURL, "test-chart")),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceRelease_OCI_login(t *testing.T) {
+	name := randName("oci")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	ociRegistryURL, shutdown := setupOCIRegistry(t, true)
+	defer shutdown()
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseConfig_OCI_login_multiple(testResourceName, namespace, name, ociRegistryURL, "1.2.3", "hashicorp", "terraform"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test1", "metadata.0.name", name+"1"),
+					resource.TestCheckResourceAttr("helm_release.test1", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test1", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test1", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test2", "metadata.0.name", name+"2"),
+					resource.TestCheckResourceAttr("helm_release.test2", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test2", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test2", "status", release.StatusDeployed.String()),
+				),
+			},
+		},
+	})
+}
+
+func testAccHelmReleaseConfig_OCI(resource, ns, name, repo, version string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+			repository  = %q
+			version     = %q
+			chart       = "test-chart"
+		}
+	`, resource, name, ns, repo, version)
+}
+
+func testAccHelmReleaseConfig_OCI_login_multiple(resource, ns, name, repo, version, username, password string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s1" {
+ 			name        = "%s1"
+			namespace   = %q
+			repository  = %q
+			version     = %q
+			chart       = "test-chart"
+
+			repository_username = %q
+			repository_password = %q
+		}
+		resource "helm_release" "%[1]s2" {
+			name       = "%[2]s2"
+		   namespace   = %[3]q
+		   repository  = %[4]q
+		   version     = %[5]q
+		   chart       = "test-chart"
+
+		   repository_username = %[6]q
+		   repository_password = %[7]q
+	   }
+	`, resource, name, ns, repo, version, username, password)
+}
+
+func testAccHelmReleaseConfig_OCI_chartName(resource, ns, name, chartName, version string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+			version     = %q
+			chart       = %q
+		}
+	`, resource, name, ns, version, chartName)
+}
+
+func testAccHelmReleaseConfig_OCI_updated(resource, ns, name, repo, version string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+			repository  = %q
+			version     = %q
+			chart       = "test-chart"
+
+			set { 
+				name = "replicaCount"
+				value = 2
+			}
+		}
+	`, resource, name, ns, repo, version)
 }
 
 func testAccHelmReleaseConfigManifestExperimentEnabled(resource, ns, name, version string) string {
