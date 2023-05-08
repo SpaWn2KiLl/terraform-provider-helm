@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package helm
 
 import (
@@ -70,6 +73,11 @@ func dataTemplate() *schema.Resource {
 				Sensitive:   true,
 				Description: "Password for HTTP basic authentication",
 			},
+			"pass_credentials": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Description: "Pass credentials to all domains",
+			},
 			"chart": {
 				Type:        schema.TypeString,
 				Required:    true,
@@ -118,6 +126,24 @@ func dataTemplate() *schema.Resource {
 							ValidateFunc: validation.StringInSlice([]string{
 								"auto", "string",
 							}, false),
+						},
+					},
+				},
+			},
+			"set_list": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "Custom sensitive values to be merged with the values.",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"name": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+						"value": {
+							Type:     schema.TypeList,
+							Required: true,
+							Elem:     &schema.Schema{Type: schema.TypeString},
 						},
 					},
 				},
@@ -329,6 +355,15 @@ func dataTemplate() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
+			"crds": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Computed:    true,
+				Description: "List of rendered CRDs from the chart.",
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
 			"manifest": {
 				Type:        schema.TypeString,
 				Optional:    true,
@@ -340,6 +375,11 @@ func dataTemplate() *schema.Resource {
 				Optional:    true,
 				Computed:    true,
 				Description: "Rendered notes if the chart contains a `NOTES.txt`.",
+			},
+			"kube_version": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Kubernetes version used for Capabilities.KubeVersion",
 			},
 		},
 	}
@@ -370,7 +410,9 @@ func dataTemplateRead(ctx context.Context, d *schema.ResourceData, meta interfac
 		showOnlyAttrValue := showOnlyAttr.([]interface{})
 
 		for _, showFile := range showOnlyAttrValue {
-			showFiles = append(showFiles, showFile.(string))
+			if s, ok := showFile.(string); ok && len(s) > 0 {
+				showFiles = append(showFiles, s)
+			}
 		}
 	}
 
@@ -380,7 +422,7 @@ func dataTemplateRead(ctx context.Context, d *schema.ResourceData, meta interfac
 	if err != nil {
 		return diag.FromErr(err)
 	}
-	err = OCIRegistryLogin(actionConfig, d)
+	err = OCIRegistryLogin(actionConfig, d, m)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -442,6 +484,14 @@ func dataTemplateRead(ctx context.Context, d *schema.ResourceData, meta interfac
 	client.Description = d.Get("description").(string)
 	client.CreateNamespace = d.Get("create_namespace").(bool)
 
+	if ver := d.Get("kube_version").(string); ver != "" {
+		parsedVer, err := chartutil.ParseKubeVersion(ver)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("couldn't parse string %q into kube-version", ver))
+		}
+		client.KubeVersion = parsedVer
+	}
+
 	// The following source has been adapted from the source of the helm template command
 	// https://github.com/helm/helm/blob/v3.5.3/cmd/helm/template.go#L67
 	client.DryRun = true
@@ -486,6 +536,11 @@ func dataTemplateRead(ctx context.Context, d *schema.ResourceData, meta interfac
 		manifestsKeys = append(manifestsKeys, k)
 	}
 	sort.Sort(releaseutil.BySplitManifestsOrder(manifestsKeys))
+
+	var chartCRDs []string
+	for _, crd := range rel.Chart.CRDObjects() {
+		chartCRDs = append(chartCRDs, string(crd.File.Data))
+	}
 
 	// Mapping of manifest key to manifest template name
 	manifestNamesByKey := make(map[string]string, len(manifestsKeys))
@@ -556,6 +611,11 @@ func dataTemplateRead(ctx context.Context, d *schema.ResourceData, meta interfac
 	computedNotes := rel.Info.Notes
 
 	d.SetId(name)
+
+	err = d.Set("crds", chartCRDs)
+	if err != nil {
+		return diag.FromErr(err)
+	}
 
 	err = d.Set("manifests", computedManifests)
 	if err != nil {

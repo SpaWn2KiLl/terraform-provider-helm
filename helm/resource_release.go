@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package helm
 
 import (
@@ -52,6 +55,7 @@ var defaultAttributes = map[string]interface{}{
 	"replace":                    false,
 	"create_namespace":           false,
 	"lint":                       false,
+	"pass_credentials":           false,
 }
 
 func resourceRelease() *schema.Resource {
@@ -101,6 +105,12 @@ func resourceRelease() *schema.Resource {
 				Optional:    true,
 				Sensitive:   true,
 				Description: "Password for HTTP basic authentication",
+			},
+			"pass_credentials": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Description: "Pass credentials to all domains",
+				Default:     defaultAttributes["pass_credentials"],
 			},
 			"chart": {
 				Type:        schema.TypeString,
@@ -152,11 +162,30 @@ func resourceRelease() *schema.Resource {
 						"type": {
 							Type:     schema.TypeString,
 							Optional: true,
+							Default:  "",
 							// TODO: use ValidateDiagFunc once an SDK v2 version of StringInSlice exists.
 							// https://github.com/hashicorp/terraform-plugin-sdk/issues/534
 							ValidateFunc: validation.StringInSlice([]string{
 								"auto", "string",
 							}, false),
+						},
+					},
+				},
+			},
+			"set_list": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "Custom sensitive values to be merged with the values.",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"name": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+						"value": {
+							Type:     schema.TypeList,
+							Required: true,
+							Elem:     &schema.Schema{Type: schema.TypeString},
 						},
 					},
 				},
@@ -342,6 +371,12 @@ func resourceRelease() *schema.Resource {
 							Required:    true,
 							Description: "The command binary path.",
 						},
+						"args": {
+							Type:        schema.TypeList,
+							Optional:    true,
+							Description: "an argument to the post-renderer (can specify multiple)",
+							Elem:        &schema.Schema{Type: schema.TypeString},
+						},
 					},
 				},
 			},
@@ -399,6 +434,43 @@ func resourceRelease() *schema.Resource {
 						},
 					},
 				},
+			},
+		},
+		SchemaVersion: 1,
+		StateUpgraders: []schema.StateUpgrader{
+			{
+				Type:    resourceReleaseUpgrader().CoreConfigSchema().ImpliedType(),
+				Upgrade: resourceReleaseStateUpgradeV0,
+				Version: 0,
+			},
+		},
+	}
+}
+
+func resourceReleaseStateUpgradeV0(ctx context.Context, rawState map[string]any, meta any) (map[string]any, error) {
+	if rawState["pass_credentials"] == nil {
+		rawState["pass_credentials"] = false
+	}
+	if rawState["wait_for_jobs"] == nil {
+		rawState["wait_for_jobs"] = false
+	}
+	return rawState, nil
+}
+
+func resourceReleaseUpgrader() *schema.Resource {
+	return &schema.Resource{
+		Schema: map[string]*schema.Schema{
+			"pass_credentials": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Description: "Pass credentials to all domains",
+				Default:     defaultAttributes["pass_credentials"],
+			},
+			"wait_for_jobs": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     defaultAttributes["wait_for_jobs"],
+				Description: "If wait is enabled, will wait until all Jobs have been completed before marking the release as successful.",
 			},
 		},
 	}
@@ -482,7 +554,7 @@ func resourceReleaseCreate(ctx context.Context, d *schema.ResourceData, meta int
 	if err != nil {
 		return diag.FromErr(err)
 	}
-	err = OCIRegistryLogin(actionConfig, d)
+	err = OCIRegistryLogin(actionConfig, d, m)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -544,7 +616,16 @@ func resourceReleaseCreate(ctx context.Context, d *schema.ResourceData, meta int
 	client.CreateNamespace = d.Get("create_namespace").(bool)
 
 	if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
-		pr, err := postrender.NewExec(cmd)
+		av := d.Get("postrender.0.args")
+		var args []string
+		for _, arg := range av.([]interface{}) {
+			if arg == nil {
+				continue
+			}
+			args = append(args, arg.(string))
+		}
+
+		pr, err := postrender.NewExec(cmd, args...)
 
 		if err != nil {
 			return diag.FromErr(err)
@@ -603,32 +684,38 @@ func resourceReleaseUpdate(ctx context.Context, d *schema.ResourceData, meta int
 	n := d.Get("namespace").(string)
 	actionConfig, err := m.GetHelmConfiguration(n)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
-	err = OCIRegistryLogin(actionConfig, d)
+	err = OCIRegistryLogin(actionConfig, d, m)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
 	client := action.NewUpgrade(actionConfig)
 
 	cpo, chartName, err := chartPathOptions(d, m, &client.ChartPathOptions)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
 
 	c, path, err := getChart(d, m, chartName, cpo)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
 
 	// check and update the chart's dependencies if needed
 	updated, err := checkChartDependencies(d, c, path, m)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	} else if updated {
 		// load the chart again if its dependencies have been updated
 		c, err = loader.Load(path)
 		if err != nil {
+			d.Partial(true)
 			return diag.FromErr(err)
 		}
 	}
@@ -653,9 +740,19 @@ func resourceReleaseUpdate(ctx context.Context, d *schema.ResourceData, meta int
 	client.Description = d.Get("description").(string)
 
 	if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
-		pr, err := postrender.NewExec(cmd)
+		av := d.Get("postrender.0.args")
+		var args []string
+		for _, arg := range av.([]interface{}) {
+			if arg == nil {
+				continue
+			}
+			args = append(args, arg.(string))
+		}
+
+		pr, err := postrender.NewExec(cmd, args...)
 
 		if err != nil {
+			d.Partial(true)
 			return diag.FromErr(err)
 		}
 
@@ -664,12 +761,14 @@ func resourceReleaseUpdate(ctx context.Context, d *schema.ResourceData, meta int
 
 	values, err := getValues(d)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
 
 	name := d.Get("name").(string)
 	r, err := client.Run(name, c, values)
 	if err != nil {
+		d.Partial(true)
 		return diag.FromErr(err)
 	}
 
@@ -717,7 +816,6 @@ func resourceReleaseDelete(ctx context.Context, d *schema.ResourceData, meta int
 func resourceDiff(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
 	logID := fmt.Sprintf("[resourceDiff: %s]", d.Get("name").(string))
 	debug("%s Start", logID)
-
 	m := meta.(*Meta)
 	name := d.Get("name").(string)
 	namespace := d.Get("namespace").(string)
@@ -726,11 +824,10 @@ func resourceDiff(ctx context.Context, d *schema.ResourceDiff, meta interface{})
 	if err != nil {
 		return err
 	}
-	err = OCIRegistryLogin(actionConfig, d)
+	err = OCIRegistryLogin(actionConfig, d, m)
 	if err != nil {
 		return err
 	}
-	client := action.NewUpgrade(actionConfig)
 
 	// Always set desired state to DEPLOYED
 	err = d.SetNew("status", release.StatusDeployed.String())
@@ -738,17 +835,44 @@ func resourceDiff(ctx context.Context, d *schema.ResourceDiff, meta interface{})
 		return err
 	}
 
-	cpo, chartName, err := chartPathOptions(d, m, &client.ChartPathOptions)
+	// Always recompute metadata if a new revision is going to be created
+	recomputeMetadataFields := []string{
+		"chart",
+		"repository",
+		"version",
+		"values",
+		"set",
+		"set_sensitive",
+		"set_list",
+	}
+	if d.HasChanges(recomputeMetadataFields...) {
+		d.SetNewComputed("metadata")
+	}
+
+	var chartPathOpts action.ChartPathOptions
+	cpo, chartName, err := chartPathOptions(d, m, &chartPathOpts)
 	if err != nil {
 		return err
 	}
 
 	// Get Chart metadata, if we fail - we're done
-	chart, _, err := getChart(d, meta.(*Meta), chartName, cpo)
+	chart, path, err := getChart(d, meta.(*Meta), chartName, cpo)
 	if err != nil {
 		return nil
 	}
 	debug("%s Got chart", logID)
+
+	// check and update the chart's dependencies if needed
+	updated, err := checkChartDependencies(d, chart, path, m)
+	if err != nil {
+		return err
+	} else if updated {
+		// load the chart again if its dependencies have been updated
+		chart, err = loader.Load(path)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Validates the resource configuration, the values, the chart itself, and
 	// the combination of both.
@@ -763,10 +887,84 @@ func resourceDiff(ctx context.Context, d *schema.ResourceDiff, meta interface{})
 	debug("%s Release validated", logID)
 
 	if m.ExperimentEnabled("manifest") {
-		// we don't need a custom diff if the release hasn't been created yet
+		// NOTE we need to check that the values supplied to the release are
+		// fully known at plan time otherwise we can't supply them to the
+		// action to perform a dry run
+		if !valuesKnown(d) {
+			// NOTE it would be nice to surface a warning diagnostic here
+			// but this is not possible with the SDK
+			debug("not all values are known, skipping dry run to render manifest")
+			d.SetNewComputed("manifest")
+			return d.SetNewComputed("version")
+		}
+
+		var postRenderer postrender.PostRenderer
+		if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
+			av := d.Get("postrender.0.args")
+			args := []string{}
+			for _, arg := range av.([]interface{}) {
+				if arg == nil {
+					continue
+				}
+				args = append(args, arg.(string))
+			}
+			pr, err := postrender.NewExec(cmd, args...)
+			if err != nil {
+				return err
+			}
+			postRenderer = pr
+		}
+
 		oldStatus, _ := d.GetChange("status")
 		if oldStatus.(string) == "" {
-			return nil
+			install := action.NewInstall(actionConfig)
+			install.ChartPathOptions = *cpo
+			install.DryRun = true
+			install.DisableHooks = d.Get("disable_webhooks").(bool)
+			install.Wait = d.Get("wait").(bool)
+			install.WaitForJobs = d.Get("wait_for_jobs").(bool)
+			install.Devel = d.Get("devel").(bool)
+			install.DependencyUpdate = d.Get("dependency_update").(bool)
+			install.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
+			install.Namespace = d.Get("namespace").(string)
+			install.ReleaseName = d.Get("name").(string)
+			install.Atomic = d.Get("atomic").(bool)
+			install.SkipCRDs = d.Get("skip_crds").(bool)
+			install.SubNotes = d.Get("render_subchart_notes").(bool)
+			install.DisableOpenAPIValidation = d.Get("disable_openapi_validation").(bool)
+			install.Replace = d.Get("replace").(bool)
+			install.Description = d.Get("description").(string)
+			install.CreateNamespace = d.Get("create_namespace").(bool)
+			install.PostRenderer = postRenderer
+
+			values, err := getValues(d)
+			if err != nil {
+				return fmt.Errorf("error getting values: %v", err)
+			}
+
+			debug("%s performing dry run install", logID)
+			dry, err := install.Run(chart, values)
+			if err != nil {
+				// NOTE if the cluster is not reachable then we can't run the install
+				// this will happen if the user has their cluster creation in the
+				// same apply. We are catching this case here and marking manifest
+				// as computed to avoid breaking existing configs
+				if strings.Contains(err.Error(), "Kubernetes cluster unreachable") {
+					// NOTE it would be nice to return a diagnostic here to warn the user
+					// that we can't generate the diff here because the cluster is not yet
+					// reachable but this is not supported by CustomizeDiffFunc
+					debug(`cluster was unreachable at create time, marking "manifest" as computed`)
+					return d.SetNewComputed("manifest")
+				}
+				return err
+			}
+
+			jsonManifest, err := convertYAMLManifestToJSON(dry.Manifest)
+			if err != nil {
+				return err
+			}
+			manifest := redactSensitiveValues(string(jsonManifest), d)
+			return d.SetNew("manifest", manifest)
 		}
 
 		// check if release exists
@@ -776,45 +974,38 @@ func resourceDiff(ctx context.Context, d *schema.ResourceDiff, meta interface{})
 				return d.SetNew("version", chart.Metadata.Version)
 			}
 			d.SetNewComputed("manifest")
-			return nil
+			return d.SetNewComputed("version")
 		} else if err != nil {
 			return fmt.Errorf("error retrieving old release for a diff: %v", err)
 		}
 
-		debug("%s performing dry run", logID)
-
-		client.ChartPathOptions = *cpo
-		client.Devel = d.Get("devel").(bool)
-		client.Namespace = d.Get("namespace").(string)
-		client.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
-		client.Wait = d.Get("wait").(bool)
-		client.DryRun = true // do not apply changes
-		client.DisableHooks = d.Get("disable_webhooks").(bool)
-		client.Atomic = d.Get("atomic").(bool)
-		client.SubNotes = d.Get("render_subchart_notes").(bool)
-		client.WaitForJobs = d.Get("wait_for_jobs").(bool)
-		client.Force = d.Get("force_update").(bool)
-		client.ResetValues = d.Get("reset_values").(bool)
-		client.ReuseValues = d.Get("reuse_values").(bool)
-		client.Recreate = d.Get("recreate_pods").(bool)
-		client.MaxHistory = d.Get("max_history").(int)
-		client.CleanupOnFail = d.Get("cleanup_on_fail").(bool)
-		client.Description = d.Get("description").(string)
-
-		if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
-			pr, err := postrender.NewExec(cmd)
-			if err != nil {
-				return err
-			}
-			client.PostRenderer = pr
-		}
+		upgrade := action.NewUpgrade(actionConfig)
+		upgrade.ChartPathOptions = *cpo
+		upgrade.Devel = d.Get("devel").(bool)
+		upgrade.Namespace = d.Get("namespace").(string)
+		upgrade.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
+		upgrade.Wait = d.Get("wait").(bool)
+		upgrade.DryRun = true // do not apply changes
+		upgrade.DisableHooks = d.Get("disable_webhooks").(bool)
+		upgrade.Atomic = d.Get("atomic").(bool)
+		upgrade.SubNotes = d.Get("render_subchart_notes").(bool)
+		upgrade.WaitForJobs = d.Get("wait_for_jobs").(bool)
+		upgrade.Force = d.Get("force_update").(bool)
+		upgrade.ResetValues = d.Get("reset_values").(bool)
+		upgrade.ReuseValues = d.Get("reuse_values").(bool)
+		upgrade.Recreate = d.Get("recreate_pods").(bool)
+		upgrade.MaxHistory = d.Get("max_history").(int)
+		upgrade.CleanupOnFail = d.Get("cleanup_on_fail").(bool)
+		upgrade.Description = d.Get("description").(string)
+		upgrade.PostRenderer = postRenderer
 
 		values, err := getValues(d)
 		if err != nil {
 			return fmt.Errorf("error getting values for a diff: %v", err)
 		}
 
-		dry, err := client.Run(name, chart, values)
+		debug("%s performing dry run upgrade", logID)
+		dry, err := upgrade.Run(name, chart, values)
 		if err != nil && strings.Contains(err.Error(), "has no deployed releases") {
 			if len(chart.Metadata.Version) > 0 {
 				return d.SetNew("version", chart.Metadata.Version)
@@ -863,9 +1054,13 @@ func setReleaseAttributes(d *schema.ResourceData, r *release.Release, meta inter
 	}
 
 	cloakSetValues(r.Config, d)
-	values, err := json.Marshal(r.Config)
-	if err != nil {
-		return err
+	values := "{}"
+	if r.Config != nil {
+		v, err := json.Marshal(r.Config)
+		if err != nil {
+			return err
+		}
+		values = string(v)
 	}
 
 	m := meta.(*Meta)
@@ -885,7 +1080,7 @@ func setReleaseAttributes(d *schema.ResourceData, r *release.Release, meta inter
 		"chart":       r.Chart.Metadata.Name,
 		"version":     r.Chart.Metadata.Version,
 		"app_version": r.Chart.Metadata.AppVersion,
-		"values":      string(values),
+		"values":      values,
 	}})
 }
 
@@ -1050,6 +1245,13 @@ func getValues(d resourceGetter) (map[string]interface{}, error) {
 		}
 	}
 
+	for _, raw := range d.Get("set_list").([]interface{}) {
+		set_list := raw.(map[string]interface{})
+		if err := getListValue(base, set_list); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, raw := range d.Get("set_sensitive").(*schema.Set).List() {
 		set := raw.(map[string]interface{})
 		if err := getValue(base, set); err != nil {
@@ -1080,6 +1282,23 @@ func getValuesYaml(base map[string]interface{}, d interface{}) (map[string]inter
 	}
 
 	return base, nil
+}
+
+func getListValue(base, set map[string]interface{}) error {
+	name := set["name"].(string)
+	listValue := set["value"].([]interface{}) // this is going to be a list
+
+	listStringArray := make([]string, len(listValue))
+
+	for i, s := range listValue {
+		listStringArray[i] = s.(string)
+	}
+	listString := strings.Join(listStringArray, ",")
+	if err := strvals.ParseInto(fmt.Sprintf("%s={%s}", name, listString), base); err != nil {
+		return fmt.Errorf("failed parsing key %q with value %s, %s", name, listString, err)
+	}
+
+	return nil
 }
 
 func getValue(base, set map[string]interface{}) error {
@@ -1210,7 +1429,7 @@ func chartPathOptions(d resourceGetter, m *Meta, cpo *action.ChartPathOptions) (
 	cpo.Version = version
 	cpo.Username = d.Get("repository_username").(string)
 	cpo.Password = d.Get("repository_password").(string)
-
+	cpo.PassCredentialsAll = d.Get("pass_credentials").(bool)
 	return cpo, chartName, nil
 }
 
@@ -1313,4 +1532,21 @@ func resultToError(r *action.LintResult) error {
 	}
 
 	return fmt.Errorf("malformed chart or values: \n\t%s", strings.Join(messages, "\n\t"))
+}
+
+// valuesKnown returns true if all of the values supplied to the release are known at plan time
+func valuesKnown(d *schema.ResourceDiff) bool {
+	rawPlan := d.GetRawPlan()
+	checkAttributes := []string{
+		"values",
+		"set",
+		"set_sensitive",
+		"set_list",
+	}
+	for _, attr := range checkAttributes {
+		if !rawPlan.GetAttr(attr).IsWhollyKnown() {
+			return false
+		}
+	}
+	return true
 }

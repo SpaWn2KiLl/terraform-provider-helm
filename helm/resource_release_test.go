@@ -1,8 +1,11 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package helm
 
 import (
+	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
@@ -33,8 +37,12 @@ func TestAccResourceRelease_basic(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -69,8 +77,12 @@ func TestAccResourceRelease_import(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -100,6 +112,7 @@ func TestAccResourceRelease_import(t *testing.T) {
 					resource.TestCheckResourceAttr("helm_release.imported", "timeout", "300"),
 					resource.TestCheckResourceAttr("helm_release.imported", "wait", "true"),
 					resource.TestCheckResourceAttr("helm_release.imported", "wait_for_jobs", "true"),
+					resource.TestCheckResourceAttr("helm_release.imported", "pass_credentials", "false"),
 					resource.TestCheckResourceAttr("helm_release.imported", "disable_webhooks", "false"),
 					resource.TestCheckResourceAttr("helm_release.imported", "atomic", "false"),
 					resource.TestCheckResourceAttr("helm_release.imported", "render_subchart_notes", "true"),
@@ -155,8 +168,12 @@ func TestAccResourceRelease_multiple_releases(t *testing.T) {
 		config += releaseConfig
 	}
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -178,8 +195,12 @@ func TestAccResourceRelease_concurrent(t *testing.T) {
 			namespace := createRandomNamespace(t)
 			defer deleteNamespace(t, namespace)
 			resource.Test(t, resource.TestCase{
-				PreCheck:     func() { testAccPreCheck(t) },
-				Providers:    testAccProviders,
+				PreCheck: func() { testAccPreCheck(t) },
+				ProviderFactories: map[string]func() (*schema.Provider, error){
+					"helm": func() (*schema.Provider, error) {
+						return Provider(), nil
+					},
+				},
 				CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 				Steps: []resource.TestStep{
 					{
@@ -203,8 +224,12 @@ func TestAccResourceRelease_update(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -235,8 +260,12 @@ func TestAccResourceRelease_emptyValuesList(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -259,8 +288,12 @@ func TestAccResourceRelease_updateValues(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -293,8 +326,12 @@ func TestAccResourceRelease_cloakValues(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -343,8 +380,12 @@ func TestAccResourceRelease_updateMultipleValues(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -379,8 +420,12 @@ func TestAccResourceRelease_repository_url(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:  func() { testAccPreCheck(t) },
-		Providers: testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		Steps: []resource.TestStep{
 			{
 				Config: testAccHelmReleaseConfigRepositoryURL(testResourceName, namespace, name),
@@ -446,8 +491,12 @@ func TestAccResourceRelease_updateAfterFail(t *testing.T) {
 	}`, name, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -473,8 +522,12 @@ func TestAccResourceRelease_updateExistingFailed(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -511,28 +564,99 @@ func TestAccResourceRelease_updateExistingFailed(t *testing.T) {
 	})
 }
 
+func TestAccResourceRelease_updateSetValue(t *testing.T) {
+	name := randName("test-update-set-value")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	// Ensure that 'set' 'type' arguments don't disappear when updating a 'set' 'value' argument.
+	// use  checkResourceAttrExists rather than testCheckResourceAttrSet as the latter also checks if the value is not ""
+	// and the default for 'type' is an empty string when not explicitly set.
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseConfigSet(
+					testResourceName, namespace, name, "1.2.3", "initial",
+				),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkResourceAttrExists("helm_release.test", "set.0.type"),
+					checkResourceAttrExists("helm_release.test", "set.1.type"),
+				),
+			},
+			{
+				Config: testAccHelmReleaseConfigSet(
+					testResourceName, namespace, name, "1.2.3", "updated",
+				),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkResourceAttrExists("helm_release.test", "set.0.type"),
+					checkResourceAttrExists("helm_release.test", "set.1.type"),
+				),
+			},
+		},
+	})
+}
+
+func checkResourceAttrExists(name, key string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		ms := s.RootModule()
+		rs, ok := ms.Resources[name]
+		if !ok {
+			return fmt.Errorf("Not found: %s in %s", name, ms.Path)
+		}
+
+		is := rs.Primary
+		if is == nil {
+			return fmt.Errorf("No primary instance: %s in %s", name, ms.Path)
+		}
+
+		if _, ok := is.Attributes[key]; ok {
+			return nil
+		}
+		return fmt.Errorf("%s: Attribute '%s' expected to be set", name, key)
+	}
+}
+
 func TestAccResourceRelease_postrender(t *testing.T) {
+	// TODO: Add Test Fixture to return real YAML here
+
 	namespace := createRandomNamespace(t)
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "cat"),
+				Config: testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "echo"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
 				),
 			},
 			{
-				Config:      testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "date"),
+				Config:      testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "echo", "this will not work!", "Wrong", "Code"),
 				ExpectError: regexp.MustCompile("error validating data"),
 			},
 			{
 				Config:      testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "foobardoesnotexist"),
 				ExpectError: regexp.MustCompile("unable to find binary"),
+			},
+			{
+				Config: testAccHelmReleaseConfigPostrender(testResourceName, namespace, testResourceName, "true", "Hello", "World", "!"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+				),
 			},
 		},
 	})
@@ -560,8 +684,12 @@ func TestAccResourceRelease_namespaceDoesNotExist(t *testing.T) {
 	}`, name, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -592,8 +720,12 @@ func TestAccResourceRelease_invalidName(t *testing.T) {
 	}`, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -620,8 +752,12 @@ func TestAccResourceRelease_createNamespace(t *testing.T) {
 	}`, name, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -706,6 +842,29 @@ func testAccHelmReleaseConfigSensitiveValuesYaml(resource, ns, name, chart, vers
 			values_sensitive = [ %s ]
 		}
 	`, resource, name, ns, chart, version, strings.Join(vals, ","))
+}
+
+func testAccHelmReleaseConfigSet(resource, ns, name, version, setValue string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+			description = "Test"
+			repository  = %q
+  			chart       = "test-chart"
+			version     = %q
+
+			set {
+				name = "foo"
+				value = %q
+			}
+
+			set {
+				name = "fizz"
+				value = 1337
+			}
+		}
+	`, resource, name, ns, testRepositoryURL, version, setValue)
 }
 
 func TestGetValues(t *testing.T) {
@@ -816,6 +975,31 @@ func TestCloakSetValuesYamlNotMatching(t *testing.T) {
 	cloakSetValues(values, d)
 	if values["foo"] != "42" {
 		t.Fatalf("error cloak values, expected %q, got %s", "42", values["foo"])
+	}
+}
+
+func TestGetListValues(t *testing.T) {
+	d := resourceRelease().Data(nil)
+	testValue := []string{"1", "2", "3"}
+	err := d.Set("set_list", []interface{}{
+		map[string]interface{}{"name": "foo", "value": testValue},
+	})
+	if err != nil {
+		t.Fatalf("error setting values: %s", err)
+		return
+	}
+
+	values, err := getValues(d)
+	if err != nil {
+		t.Fatalf("error getValues: %s", err)
+		return
+	}
+
+	for i, v := range testValue {
+		val, _ := strconv.ParseInt(v, 10, 64)
+		if values["foo"].([]interface{})[i] != val {
+			t.Fatalf("error merging values, expected value of %v, got %v", v, values["foo"].([]interface{})[i])
+		}
 	}
 }
 
@@ -1007,7 +1191,7 @@ func testAccCheckHelmReleaseDestroy(namespace string) resource.TestCheckFunc {
 	}
 }
 
-func testAccHelmReleaseConfigPostrender(resource, ns, name, binaryPath string) string {
+func testAccHelmReleaseConfigPostrender(resource, ns, name, binaryPath string, args ...string) string {
 	return fmt.Sprintf(`
 		resource "helm_release" "%s" {
  			name        = %q
@@ -1018,6 +1202,7 @@ func testAccHelmReleaseConfigPostrender(resource, ns, name, binaryPath string) s
 
 			postrender {
 				binary_path = %q
+				args = %s
 			}
 
 			set {
@@ -1029,7 +1214,7 @@ func testAccHelmReleaseConfigPostrender(resource, ns, name, binaryPath string) s
 				value = 1337
 			}
 		}
-	`, resource, name, ns, testRepositoryURL, binaryPath)
+	`, resource, name, ns, testRepositoryURL, binaryPath, fmt.Sprintf(`["%s"]`, strings.Join(args, `","`)))
 }
 
 func TestAccResourceRelease_LintFailValues(t *testing.T) {
@@ -1049,8 +1234,12 @@ func TestAccResourceRelease_LintFailValues(t *testing.T) {
 	}`, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1077,8 +1266,12 @@ func TestAccResourceRelease_LintFailChart(t *testing.T) {
 	}`, namespace, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1104,8 +1297,12 @@ func TestAccResourceRelease_FailedDeployFailsApply(t *testing.T) {
 	}`, name, testRepositoryURL)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1132,8 +1329,12 @@ func TestAccResourceRelease_dependency(t *testing.T) {
 	}
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1162,6 +1363,19 @@ func TestAccResourceRelease_dependency(t *testing.T) {
 					resource.TestCheckResourceAttr("helm_release.test", "dependency_update", "true"),
 				),
 			},
+			{
+				PreConfig: func() {
+					if err := removeSubcharts("umbrella-chart"); err != nil {
+						t.Fatalf("Failed to remove subcharts: %s", err)
+					}
+				},
+				Config: testAccHelmReleaseConfigDependencyUpdateWithLint(testResourceName, namespace, name, true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.revision", "3"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test", "dependency_update", "true"),
+				),
+			},
 		},
 	})
 }
@@ -1173,8 +1387,12 @@ func TestAccResourceRelease_chartURL(t *testing.T) {
 
 	chartURL := fmt.Sprintf("%s/%s", testRepositoryURL, "test-chart-1.2.3.tgz")
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1203,8 +1421,12 @@ func TestAccResourceRelease_helm_repo_add(t *testing.T) {
 	}
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1225,8 +1447,12 @@ func TestAccResourceRelease_delete_regression(t *testing.T) {
 	defer deleteNamespace(t, namespace)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1277,7 +1503,11 @@ func TestAccResourceRelease_manifest(t *testing.T) {
 		PreCheck: func() {
 			testAccPreCheck(t)
 		},
-		Providers:    testAccProviders,
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1301,14 +1531,104 @@ func TestAccResourceRelease_manifest(t *testing.T) {
 	})
 }
 
+func TestAccResourceRelease_manifestUnknownValues(t *testing.T) {
+	name := "example"
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+		},
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"random": {
+				Source: "hashicorp/random",
+			},
+		},
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			// NOTE this is a regression test to apply a configuration which supplies
+			// unknown values to the release at plan time, we simply expected to test here
+			// that applying the config doesn't produce an inconsistent final plan error
+			{
+				Config: testAccHelmReleaseConfigManifestUnknownValues(testResourceName, namespace, name, "1.2.3"),
+			},
+		},
+	})
+}
+
+func TestAccResourceRelease_set_list_chart(t *testing.T) {
+	name := randName("helm-setlist-chart")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseSetListValues(testResourceName, namespace, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.chart", "test-chart"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.0", "1"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.1", "2"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.2", "3"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceRelease_update_set_list_chart(t *testing.T) {
+	name := randName("helm-setlist-chart")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseSetListValues(testResourceName, namespace, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.chart", "test-chart"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.0", "1"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.1", "2"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.2", "3"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.#", "3"),
+				),
+			},
+			{
+				Config: testAccHelmReleaseUpdateSetListValues(testResourceName, namespace, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.chart", "test-chart"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.0", "2"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.1", "1"),
+					resource.TestCheckResourceAttr("helm_release.test", "set_list.0.value.#", "2"),
+				),
+			},
+		},
+	})
+}
+
 func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
 		t.Skip("Starting the OCI registry requires docker to be installed in the PATH")
 	}
 
-	ociRegistryPort := rand.Intn(65535-1024) + 1024
-	ociRegistryURL := fmt.Sprintf("oci://localhost:%d/helm-charts", ociRegistryPort)
+	helmPath, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("Starting the OCI registry requires helm to be installed in the PATH")
+	}
+
 	regitryContainerName := randName("registry")
 
 	// start OCI registry
@@ -1319,7 +1639,7 @@ func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 	runflags := []string{
 		"run",
 		"--detach",
-		"--publish", fmt.Sprintf("%d:5000", ociRegistryPort),
+		"--publish", "5000",
 		"--name", regitryContainerName,
 	}
 	if usepassword {
@@ -1340,11 +1660,25 @@ func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 	// wait a few seconds for the server to start
 	t.Log("Waiting for registry to start...")
 	time.Sleep(5 * time.Second)
+
+	// grab the randomly chosen port
+	cmd = exec.Command(dockerPath, "port", regitryContainerName)
+	out, err = cmd.CombinedOutput()
+	t.Log(string(out))
+	if err != nil {
+		t.Errorf("Failed to get port for OCI registry: %v", err)
+		return "", nil
+	}
+
+	portOutput := strings.Split(string(out), "\n")[0]
+	ociRegistryPort := strings.TrimSpace(strings.Split(strings.Split(portOutput, " -> ")[1], ":")[1])
+	ociRegistryURL := fmt.Sprintf("oci://localhost:%s/helm-charts", ociRegistryPort)
+
 	t.Log("OCI registry started at", ociRegistryURL)
 
 	// package chart
 	t.Log("packaging test-chart")
-	cmd = exec.Command("helm", "package", "testdata/charts/test-chart")
+	cmd = exec.Command(helmPath, "package", "testdata/charts/test-chart")
 	out, err = cmd.CombinedOutput()
 	t.Log(string(out))
 	if err != nil {
@@ -1355,8 +1689,8 @@ func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 	if usepassword {
 		// log into OCI registry
 		t.Log("logging in to test-chart to OCI registry")
-		cmd = exec.Command("helm", "registry", "login",
-			fmt.Sprintf("localhost:%d", ociRegistryPort),
+		cmd = exec.Command(helmPath, "registry", "login",
+			fmt.Sprintf("localhost:%s", ociRegistryPort),
 			"--username", "hashicorp",
 			"--password", "terraform")
 		out, err = cmd.CombinedOutput()
@@ -1369,7 +1703,7 @@ func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 
 	// push chart to OCI registry
 	t.Log("pushing test-chart to OCI registry")
-	cmd = exec.Command("helm", "push",
+	cmd = exec.Command(helmPath, "push",
 		"test-chart-1.2.3.tgz",
 		ociRegistryURL)
 	out, err = cmd.CombinedOutput()
@@ -1381,7 +1715,7 @@ func setupOCIRegistry(t *testing.T, usepassword bool) (string, func()) {
 
 	return ociRegistryURL, func() {
 		t.Log("stopping OCI registry")
-		cmd := exec.Command("docker", "rm",
+		cmd := exec.Command(dockerPath, "rm",
 			"--force", regitryContainerName)
 		out, err := cmd.CombinedOutput()
 		t.Log(string(out))
@@ -1403,7 +1737,11 @@ func TestAccResourceRelease_OCI_repository(t *testing.T) {
 		PreCheck: func() {
 			testAccPreCheck(t)
 		},
-		Providers:    testAccProviders,
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1440,6 +1778,59 @@ func TestAccResourceRelease_OCI_repository(t *testing.T) {
 	})
 }
 
+func TestAccResourceRelease_OCI_registry_login(t *testing.T) {
+	name := randName("oci")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	ociRegistryURL, shutdown := setupOCIRegistry(t, false)
+	defer shutdown()
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+		},
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseConfig_OCI_login_provider(os.Getenv("KUBE_CONFIG_PATH"), testResourceName, namespace, name, ociRegistryURL, "1.2.3", "hashicorp", "terraform"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.name", name),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "1.2.3"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+				),
+			},
+		},
+	})
+}
+
+func testAccHelmReleaseConfig_OCI_login_provider(kubeconfig, resource, ns, name, repo, version, username, password string) string {
+	return fmt.Sprintf(`
+		provider "helm" {
+			kubernetes {
+				config_path = %q
+			}
+			registry {
+		  		url      = %q
+		  		username = %q
+		  		password = %q
+			}
+	  	}
+		resource "helm_release" "%s" {
+ 			name        = "%s"
+			namespace   = %q
+			version     = %q
+			repository  = %[2]q
+			chart       = "test-chart"
+		}`, kubeconfig, repo, username, password, resource, name, ns, version)
+}
+
 func TestAccResourceRelease_OCI_login(t *testing.T) {
 	name := randName("oci")
 	namespace := createRandomNamespace(t)
@@ -1452,7 +1843,11 @@ func TestAccResourceRelease_OCI_login(t *testing.T) {
 		PreCheck: func() {
 			testAccPreCheck(t)
 		},
-		Providers:    testAccProviders,
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
 		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
 		Steps: []resource.TestStep{
 			{
@@ -1467,6 +1862,53 @@ func TestAccResourceRelease_OCI_login(t *testing.T) {
 					resource.TestCheckResourceAttr("helm_release.test2", "metadata.0.version", "1.2.3"),
 					resource.TestCheckResourceAttr("helm_release.test2", "status", release.StatusDeployed.String()),
 				),
+			},
+		},
+	})
+}
+
+func TestAccResourceRelease_recomputeMetadata(t *testing.T) {
+	name := randName("basic")
+	namespace := createRandomNamespace(t)
+	defer deleteNamespace(t, namespace)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"helm": func() (*schema.Provider, error) {
+				return Provider(), nil
+			},
+		},
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"local": {
+				Source: "hashicorp/local",
+			},
+		},
+		CheckDestroy: testAccCheckHelmReleaseDestroy(namespace),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccHelmReleaseRecomputeMetadata(testResourceName, namespace, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.name", name),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.namespace", namespace),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.revision", "1"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "2.0.0"),
+					resource.TestCheckResourceAttr("helm_release.test", "set.%", "0"),
+				),
+			},
+			{
+				Config: testAccHelmReleaseRecomputeMetadataSet(testResourceName, namespace, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("helm_release.test", "metadata.0.version", "2.0.0"),
+					resource.TestCheckResourceAttr("helm_release.test", "status", release.StatusDeployed.String()),
+					resource.TestCheckResourceAttr("helm_release.test", "set.0.name", "test"),
+					resource.TestCheckResourceAttr("helm_release.test", "set.0.value", "test"),
+				),
+			},
+			{
+				Config:   testAccHelmReleaseRecomputeMetadataSet(testResourceName, namespace, name),
+				PlanOnly: true,
 			},
 		},
 	})
@@ -1554,6 +1996,58 @@ func testAccHelmReleaseConfigManifestExperimentEnabled(resource, ns, name, versi
 	`, resource, name, ns, testRepositoryURL, version)
 }
 
+func testAccHelmReleaseConfigManifestUnknownValues(resource, ns, name, version string) string {
+	return fmt.Sprintf(`
+		provider helm {
+			experiments {
+				manifest = true
+			}
+		}
+		resource "random_string" "random_label" {
+			length           = 16
+			special          = false
+		}
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+			repository  = %q
+			version     = %q
+			chart       = "test-chart"
+			set {
+				name  = "podAnnotations.random"
+				value = random_string.random_label.result
+			}
+			set_sensitive {
+				name  = "podAnnotations.sensitive"
+				value = random_string.random_label.result
+			}
+			values = [<<EOT
+podAnnotations:
+  test: ${random_string.random_label.result}
+			EOT
+			]
+		}
+	`, resource, name, ns, testRepositoryURL, version)
+}
+
+func testAccHelmReleaseConfigDependencyUpdateWithLint(resource, ns, name string, dependencyUpdate bool) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+ 			name        = %q
+			namespace   = %q
+  			chart       = "./testdata/charts/umbrella-chart"
+
+			dependency_update = %t
+			lint = true
+
+			set {
+				name = "fake"
+				value = "fake"
+			}
+		}
+	`, resource, name, ns, dependencyUpdate)
+}
+
 func testAccHelmReleaseConfig_helm_repo_add(resource, ns, name string) string {
 	return fmt.Sprintf(`
 		resource "helm_release" "%s" {
@@ -1613,4 +2107,94 @@ func removeSubcharts(chartName string) error {
 		return errors.Wrapf(err, "can't remove charts directory %s", chartsPath)
 	}
 	return os.RemoveAll(chartsPath)
+}
+
+func TestResourceExampleInstanceStateUpgradeV0(t *testing.T) {
+	expected := map[string]any{
+		"wait_for_jobs":    false,
+		"pass_credentials": false,
+	}
+	states := []map[string]any{
+		{
+			"wait_for_jobs":    nil,
+			"pass_credentials": nil,
+		},
+		{},
+	}
+
+	for _, state := range states {
+		actual, err := resourceReleaseStateUpgradeV0(context.Background(), state, nil)
+		if err != nil {
+			t.Fatalf("error migrating state: %s", err)
+		}
+
+		if !reflect.DeepEqual(expected, actual) {
+			t.Fatalf("\n\nexpected:\n\n%#v\n\ngot:\n\n%#v\n\n", expected, actual)
+		}
+	}
+}
+
+func testAccHelmReleaseSetListValues(resource, ns, name string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+	 		name        = %q
+			namespace   = %q
+	  		chart       = "./testdata/charts/test-chart-v2"
+
+			set_list {
+				name = "set_list_test"
+				value = [1, 2, 3]
+			}
+		}
+`, resource, name, ns)
+}
+
+func testAccHelmReleaseUpdateSetListValues(resource, ns, name string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+			name        = %q
+			namespace   = %q
+	  		chart       = "./testdata/charts/test-chart-v2"
+
+			set_list {
+				name = "set_list_test"
+				value = [2, 1]
+			}
+		}
+`, resource, name, ns)
+}
+
+func testAccHelmReleaseRecomputeMetadata(resource, ns, name string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+			name        = %q
+			namespace   = %q
+			chart       = "./testdata/charts/test-chart-v2"
+		}
+
+		resource "local_file" "example" {
+			content  = yamlencode(helm_release.test.metadata)
+			filename = "${path.module}/foo.bar"
+		}
+`, resource, name, ns)
+}
+
+func testAccHelmReleaseRecomputeMetadataSet(resource, ns, name string) string {
+	return fmt.Sprintf(`
+		resource "helm_release" "%s" {
+			name        = %q
+			namespace   = %q
+  			chart       = "./testdata/charts/test-chart-v2"
+
+			set {
+				name  = "test"
+				value = "test"
+			}
+		}
+
+		resource "local_file" "example" {
+			content  = yamlencode(helm_release.test.metadata)
+			filename = "${path.module}/foo.bar"
+		}
+`, resource, name, ns)
 }

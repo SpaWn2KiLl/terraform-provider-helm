@@ -1,3 +1,80 @@
+## 2.9.0 (February 14, 2023)
+
+FEATURES:
+
+* `provider`: Add a new attribute `burst_limit` for client-side throttling limit configuration. [[GH-1012](https://github.com/hashicorp/terraform-provider-helm/issues/1012)]
+
+ENHANCEMENT:
+
+* `data_source/helm_template`: Add a new attribute `crds` which when `include_crds` is set to `true` will be populated with a list of the manifests from the `crds/` folder of the chart. [[GH-1050](https://github.com/hashicorp/terraform-provider-helm/issues/1050)]
+
+BUG FIXES:
+
+* `resource/helm_release`: Fix an issue when the provider crashes with the error message `Provider produced inconsistent final plan` after upgrading from `v2.5.1` to `v2.6.0` and higher. That happened due to changes in the provider schema and the introduction of a new attribute `pass_credentials` that was not properly handled. [[GH-982](https://github.com/hashicorp/terraform-provider-helm/issues/982)]
+
+DOCS:
+
+* `data_source/helm_template`: Add a new attribute `crds` [[GH-1050](https://github.com/hashicorp/terraform-provider-helm/issues/1050)]
+* `data_source/helm_template`: Correct some errors in examples. [[GH-1027](https://github.com/hashicorp/terraform-provider-helm/issues/1027)]
+* `provider`: Add a new attribute `burst_limit`. [[GH-1012](https://github.com/hashicorp/terraform-provider-helm/issues/1012)]
+* `provider`: Add a note regarding the `KUBECONFIG` environment variable. [[GH-1051](https://github.com/hashicorp/terraform-provider-helm/issues/1051)]
+* `resource/helm_release`: Add usage example for `OCI` repositories. [[GH-1030](https://github.com/hashicorp/terraform-provider-helm/issues/1030)]
+* `resource/helm_release`: Add usage examples for `GCS` and `S3` plugins. [[GH-1026](https://github.com/hashicorp/terraform-provider-helm/issues/1026)]
+
+DEPENDENCIES:
+
+* Bump `github.com/containerd/containerd` from `1.6.6` to `1.6.12` [[GH-1029](https://github.com/hashicorp/terraform-provider-helm/issues/1029)]
+* Bump `golang.org/x/crypto` from `0.5.0` to `0.6.0` [[GH-1055](https://github.com/hashicorp/terraform-provider-helm/issues/1055)]
+* Bump `helm.sh/helm/v3` from `3.9.4` to `3.11.1` [[GH-1036](https://github.com/hashicorp/terraform-provider-helm/issues/1036)] [[GH-1054](https://github.com/hashicorp/terraform-provider-helm/issues/1054)]
+* Bump `k8s.io/client-go` from `0.24.2` to `0.26.1` [[GH-1037](https://github.com/hashicorp/terraform-provider-helm/issues/1037)]
+
+NOTES:
+
+* `provider`: `kubernetes.exec.api_version` no longer supports `client.authentication.k8s.io/v1alpha1`. Please, switch to `client.authentication.k8s.io/v1beta1` or `client.authentication.k8s.io/v1`. [[GH-1037](https://github.com/hashicorp/terraform-provider-helm/issues/1037)]
+
+## Community Contributors :raised_hands:
+- @loafoe made their contribution in https://github.com/hashicorp/terraform-provider-helm/pull/1012
+
+## 2.8.0 (December 13, 2022)
+
+FEATURES:
+
+* Add support for configuring OCI registries inside provider block [[GH-862](https://github.com/hashicorp/terraform-provider-helm/issues/862)]
+* Add support for setting kube version on helm_template data source [[GH-994](https://github.com/hashicorp/terraform-provider-helm/issues/994)]
+
+BUG FIXES:
+
+* Fix larger diff than expected when updating helm_release "set" block value [[GH-915](https://github.com/hashicorp/terraform-provider-helm/issues/915)]
+
+## 2.7.1 (October 12, 2022)
+
+BUG FIXES:
+
+* Crash Fix: Fix Unknown Value in Manifest Diff [[GH-966](https://github.com/hashicorp/terraform-provider-helm/issues/966)]
+
+## 2.7.0 (September 28, 2022)
+
+FEATURES:
+
+* Update helm package to 3.9.4 (#945)
+* Show Manifest when creating release [[GH-903](https://github.com/hashicorp/terraform-provider-helm/issues/903)]
+
+BUG FIXES:
+
+* Do dependency update in resourceDiff #771 (#855)
+* Crash: Fix `show_only` crash when string is empty [[GH-950](https://github.com/hashicorp/terraform-provider-helm/issues/950)]
+
+## 2.6.0 (June 17, 2022)
+
+IMPROVEMENTS:
+* Upgrade helm dependency to 3.9.0 (#867)
+* Add `args` attribute in `post_render` block in (#869)
+* Add `pass_credentials` attribute (#841)
+* Add `proxy_url` attribute to provider block (#843)
+
+BUG FIXES:
+* Don't persist state when update causes an error (#857)
+
 ## 2.5.1 (April 11, 2022)
 
 FIX:

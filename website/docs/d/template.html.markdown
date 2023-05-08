@@ -20,7 +20,7 @@ For further details on the `helm template` command, refer to the [Helm documenta
 
 ### Render all chart templates
 
-The following example renders all templates of the `mariadb` chart of the official Helm stable repository. Concatenated manifests are exposed as output variable `mariadb_instance_manifest_bundle`.
+The following example renders all templates of the `mariadb` chart of the official Helm stable repository. Concatenated manifests are exposed as output variable `mariadb_instance_manifest`.
 
 ```hcl
 data "helm_template" "mariadb_instance" {
@@ -49,8 +49,8 @@ resource "local_file" "mariadb_manifests" {
   content  = each.value
 }
 
-output "mariadb_instance_manifest_bundle" {
-  value = data.helm_template.mariadb_instance.manifest_bundle
+output "mariadb_instance_manifest" {
+  value = data.helm_template.mariadb_instance.manifest
 }
 
 output "mariadb_instance_manifests" {
@@ -75,7 +75,7 @@ data "helm_template" "mariadb_instance" {
   chart   = "mariadb"
   version = "7.1.0"
 
-  templates = [
+  show_only = [
     "templates/master-statefulset.yaml",
     "templates/master-svc.yaml",
   ]
@@ -98,8 +98,8 @@ resource "local_file" "mariadb_manifests" {
   content  = each.value
 }
 
-output "mariadb_instance_manifest_bundle" {
-  value = data.helm_template.mariadb_instance.manifest_bundle
+output "mariadb_instance_manifest" {
+  value = data.helm_template.mariadb_instance.manifest
 }
 
 output "mariadb_instance_manifests" {
@@ -124,7 +124,7 @@ The following arguments are supported:
 * `repository_username` - (Optional) Username for HTTP basic authentication against the repository.
 * `repository_password` - (Optional) Password for HTTP basic authentication against the repository.
 * `devel` - (Optional) Use chart development versions, too. Equivalent to version '>0.0.0-0'. If version is set, this is ignored.
-* `version` - (Optional) Specify the exact chart version to install. If this is not specified, the latest version is installed.
+* `version` - (Optional) Specify the exact chart version to install. If this is not specified, the latest version is installed. `helm_release` will not automatically grab the latest release, version must explicitly upgraded when upgrading an installed chart.
 * `namespace` - (Optional) The namespace to install the release into. Defaults to `default`.
 * `verify` - (Optional) Verify the package before installing it. Helm uses a provenance file to verify the integrity of the chart; this must be hosted alongside the chart. For more information see the [Helm Documentation](https://helm.sh/docs/topics/provenance/). Defaults to `false`.
 * `keyring` - (Optional) Location of public keys used for verification. Used only if `verify` is true. Defaults to `/.gnupg/pubring.gpg` in the location set by `home`
@@ -140,6 +140,7 @@ The following arguments are supported:
 * `wait` - (Optional) Will wait until all resources are in a ready state before marking the release as successful. It will wait for as long as `timeout`. Defaults to `true`.
 * `values` - (Optional) List of values in raw yaml to pass to helm. Values will be merged, in order, as Helm does with multiple `-f` options.
 * `set` - (Optional) Value block with custom values to be merged with the values yaml.
+* `set_list` - (Optional) Value block with list of custom values to be merged with the values yaml.
 * `set_sensitive` - (Optional) Value block with custom sensitive values to be merged with the values yaml that won't be exposed in the plan's diff.
 * `set_string` - (Optional) Value block with custom STRING values to be merged with the values yaml.
 * `dependency_update` - (Optional) Runs helm dependency update before installing the chart. Defaults to `false`.
@@ -155,11 +156,13 @@ The following attributes are specific to the `helm_template` data source and not
 * `is_upgrade` - (Optional) Set .Release.IsUpgrade instead of .Release.IsInstall. Defaults to `false`.
 * `show_only` - (Optional) Explicit list of chart templates to render, as Helm does with the `-s` or `--show-only` option. Paths to chart templates are relative to the root folder of the chart, e.g. `templates/deployment.yaml`. If not provided, all templates of the chart are rendered.
 * `validate` - (Optional) Validate your manifests against the Kubernetes cluster you are currently pointing at. This is the same validation performed on an install. Defaults to `false`.
+* `kube_version` - (Optional) Allows specifying a custom kubernetes version to use when templating.
 
 ## Attributes Reference
 
 In addition to the arguments listed above, the following computed attributes are exported:
 
 * `manifests` - Map of rendered chart templates indexed by the template name.
+* `crds` - List of CRDs in the chart. Is empty unless `include_crds` is set to `true`.
 * `manifest` - Concatenated rendered chart templates. This corresponds to the output of the `helm template` command.
 * `notes` - Rendered notes if the chart contains a `NOTES.txt`.

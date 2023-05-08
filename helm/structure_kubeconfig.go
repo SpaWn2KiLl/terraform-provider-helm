@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package helm
 
 import (
@@ -25,6 +28,8 @@ import (
 type KubeConfig struct {
 	ClientConfig clientcmd.ClientConfig
 
+	Burst int
+
 	sync.Mutex
 }
 
@@ -44,7 +49,7 @@ func (k *KubeConfig) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, er
 	// The more groups you have, the more discovery requests you need to make.
 	// given 25 groups (our groups + a few custom resources) with one-ish version each, discovery needs to make 50 requests
 	// double it just so we don't end up here again for a while.  This config is only used for discovery.
-	config.Burst = 100
+	config.Burst = k.Burst
 
 	return memcached.NewMemCacheClient(discovery.NewDiscoveryClientForConfigOrDie(config)), nil
 }
@@ -160,6 +165,10 @@ func newKubeConfig(configData *schema.ResourceData, namespace *string) (*KubeCon
 		overrides.AuthInfo.Token = v.(string)
 	}
 
+	if v, ok := k8sGetOk(configData, "proxy_url"); ok {
+		overrides.ClusterDefaults.ProxyURL = v.(string)
+	}
+
 	if v, ok := k8sGetOk(configData, "exec"); ok {
 		exec := &clientcmdapi.ExecConfig{}
 		if spec, ok := v.([]interface{})[0].(map[string]interface{}); ok {
@@ -182,6 +191,7 @@ func newKubeConfig(configData *schema.ResourceData, namespace *string) (*KubeCon
 	if namespace != nil {
 		overrides.Context.Namespace = *namespace
 	}
+	burstLimit := configData.Get("burst_limit").(int)
 
 	client := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, overrides)
 	if client == nil {
@@ -190,5 +200,5 @@ func newKubeConfig(configData *schema.ResourceData, namespace *string) (*KubeCon
 	}
 	log.Printf("[INFO] Successfully initialized kubernetes config")
 
-	return &KubeConfig{ClientConfig: client}, nil
+	return &KubeConfig{ClientConfig: client, Burst: burstLimit}, nil
 }

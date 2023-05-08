@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package main
 
 import (
@@ -8,6 +11,9 @@ import (
 	"github.com/hashicorp/terraform-provider-helm/helm"
 	"k8s.io/klog"
 )
+
+// Generate docs for website
+//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs
 
 func main() {
 	debugFlag := flag.Bool("debug", false, "Start provider in stand-alone debug mode.")

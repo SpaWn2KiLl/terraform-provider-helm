@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package helm
 
 import (
@@ -26,9 +29,10 @@ import (
 
 // Meta is the meta information structure for the provider
 type Meta struct {
-	data       *schema.ResourceData
-	Settings   *cli.EnvSettings
-	HelmDriver string
+	data           *schema.ResourceData
+	Settings       *cli.EnvSettings
+	RegistryClient *registry.Client
+	HelmDriver     string
 
 	// Used to lock some operations
 	sync.Mutex
@@ -100,12 +104,24 @@ func Provider() *schema.Provider {
 					}
 				},
 			},
+			"burst_limit": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Default:     100,
+				Description: "Helm burst limit. Increase this if you have a cluster with many CRDs",
+			},
 			"kubernetes": {
 				Type:        schema.TypeList,
 				MaxItems:    1,
 				Optional:    true,
 				Description: "Kubernetes configuration.",
 				Elem:        kubernetesResource(),
+			},
+			"registry": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "RegistryClient configuration.",
+				Elem:        registryResource(),
 			},
 			"experiments": {
 				Type:        schema.TypeList,
@@ -144,6 +160,28 @@ func Provider() *schema.Provider {
 		return providerConfigure(d, p.TerraformVersion)
 	}
 	return p
+}
+
+func registryResource() *schema.Resource {
+	return &schema.Resource{
+		Schema: map[string]*schema.Schema{
+			"url": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "OCI URL in form of oci://host:port or oci://host",
+			},
+			"username": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "The username to use for HTTP basic authentication when accessing the Kubernetes master endpoint.",
+			},
+			"password": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "The password to use for HTTP basic authentication when accessing the Kubernetes master endpoint.",
+			},
+		},
+	}
 }
 
 func kubernetesResource() *schema.Resource {
@@ -227,6 +265,12 @@ func kubernetesResource() *schema.Resource {
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_TOKEN", ""),
 				Description: "Token to authenticate an service account",
 			},
+			"proxy_url": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "URL to the proxy to be used for all API requests",
+				DefaultFunc: schema.EnvDefaultFunc("KUBE_PROXY_URL", ""),
+			},
 			"exec": {
 				Type:     schema.TypeList,
 				Optional: true,
@@ -236,6 +280,17 @@ func kubernetesResource() *schema.Resource {
 						"api_version": {
 							Type:     schema.TypeString,
 							Required: true,
+							ValidateDiagFunc: func(val interface{}, key cty.Path) (diags diag.Diagnostics) {
+								apiVersion := val.(string)
+								if apiVersion == "client.authentication.k8s.io/v1alpha1" {
+									return diag.Diagnostics{{
+										Severity: diag.Warning,
+										Summary:  "v1alpha1 of the client authentication API has been removed, use v1beta1 or above",
+										Detail:   "v1alpha1 of the client authentication API is removed in Kubernetes client versions 1.24 and above. You may need to update your exec plugin to use the latest version.",
+									}}
+								}
+								return
+							},
 						},
 						"command": {
 							Type:     schema.TypeString,
@@ -292,6 +347,18 @@ func providerConfigure(d *schema.ResourceData, terraformVersion string) (interfa
 
 	if v, ok := d.GetOk("helm_driver"); ok {
 		m.HelmDriver = v.(string)
+	}
+
+	if registryClient, err := registry.NewClient(); err == nil {
+		m.RegistryClient = registryClient
+		for _, r := range d.Get("registry").([]interface{}) {
+			if v, ok := r.(map[string]interface{}); ok {
+				err := OCIRegistryPerformLogin(m.RegistryClient, v["url"].(string), v["username"].(string), v["password"].(string))
+				if err != nil {
+					return nil, diag.FromErr(err)
+				}
+			}
+		}
 	}
 
 	return m, nil
@@ -390,15 +457,12 @@ type dataGetter interface {
 var loggedInOCIRegistries map[string]string = map[string]string{}
 var OCILoginMutex sync.Mutex
 
-// OCIRegistryLogin creates an OCI registry client and logs into the registry if needed
-func OCIRegistryLogin(actionConfig *action.Configuration, d dataGetter) error {
-	registryClient, err := registry.NewClient()
-	if err != nil {
-		return fmt.Errorf("could not create OCI registry client: %v", err)
-	}
+// OCIRegistryLogin logs into the registry if needed
+func OCIRegistryLogin(actionConfig *action.Configuration, d dataGetter, m *Meta) error {
+	registryClient := m.RegistryClient
 	actionConfig.RegistryClient = registryClient
 
-	// log in to the registry if neccessary
+	// log in to the registry if necessary
 	repository := d.Get("repository").(string)
 	chartName := d.Get("chart").(string)
 	var ociURL string
@@ -414,25 +478,32 @@ func OCIRegistryLogin(actionConfig *action.Configuration, d dataGetter) error {
 	username := d.Get("repository_username").(string)
 	password := d.Get("repository_password").(string)
 	if username != "" && password != "" {
-		u, err := url.Parse(ociURL)
-		if err != nil {
-			return fmt.Errorf("could not parse OCI registry URL: %v", err)
-		}
-
-		OCILoginMutex.Lock()
-		defer OCILoginMutex.Unlock()
-		if _, ok := loggedInOCIRegistries[u.Host]; ok {
-			debug("[INFO] Already logged into OCI registry %q", u.Host)
-			return nil
-		}
-		err = registryClient.Login(u.Host,
-			registry.LoginOptBasicAuth(username, password))
-		if err != nil {
-			return fmt.Errorf("could not login to OCI registry %q: %v", u.Host, err)
-		}
-		loggedInOCIRegistries[u.Host] = ""
-		debug("[INFO] Logged into OCI registry")
+		return OCIRegistryPerformLogin(registryClient, ociURL, username, password)
 	}
+
+	return nil
+}
+
+// OCIRegistryPerformLogin creates an OCI registry client and logs into the registry if needed
+func OCIRegistryPerformLogin(registryClient *registry.Client, ociURL string, username string, password string) error {
+	u, err := url.Parse(ociURL)
+	if err != nil {
+		return fmt.Errorf("could not parse OCI registry URL: %v", err)
+	}
+
+	OCILoginMutex.Lock()
+	defer OCILoginMutex.Unlock()
+	if _, ok := loggedInOCIRegistries[u.Host]; ok {
+		debug("[INFO] Already logged into OCI registry %q", u.Host)
+		return nil
+	}
+	err = registryClient.Login(u.Host,
+		registry.LoginOptBasicAuth(username, password))
+	if err != nil {
+		return fmt.Errorf("could not login to OCI registry %q: %v", u.Host, err)
+	}
+	loggedInOCIRegistries[u.Host] = ""
+	debug("[INFO] Logged into OCI registry")
 
 	return nil
 }
